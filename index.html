@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'">
+  <title>Why a Venn diagram lies about SQL joins — the row-by-row explainer</title>
+  <meta name="description" content="Why the Venn diagram fails to explain SQL joins: an animated walkthrough of how rows really pair up — duplicate-key blowups, NULLs that never match, and GROUP BY — with a link to a real, offline join visualizer.">
+  <meta name="color-scheme" content="dark light">
+  <link rel="canonical" href="https://sreenivas-sadhu-prabhakara.github.io/joincraft-explained/">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="author" content="Sreenivas Sadhu Prabhakara">
+  <meta name="keywords" content="sql joins explained, venn diagram sql wrong, sql join visualizer, inner join left join right join full outer join, duplicate keys join blowup, sql null never matches, three-valued logic sql, group by nulls, how sql joins work animated">
+  <meta name="theme-color" content="#1D2126" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#F3F5F2" media="(prefers-color-scheme: light)">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Why a Venn diagram lies about SQL joins">
+  <meta property="og:title" content="Why a Venn diagram lies about SQL joins — the row-by-row explainer">
+  <meta property="og:description" content="A Venn diagram cannot draw the case where one row fans out to many, and it says nothing about NULL. See how joins really pair rows up — animated, then try it live.">
+  <meta property="og:url" content="https://sreenivas-sadhu-prabhakara.github.io/joincraft-explained/">
+  <meta property="og:locale" content="en_US">
+  <meta property="og:image" content="https://sreenivas-sadhu-prabhakara.github.io/joincraft-explained/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="A crossed-out Venn diagram beside a one-to-three chartreuse join-ribbon fan: the duplicate-key blowup a Venn diagram cannot draw">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Why a Venn diagram lies about SQL joins — the row-by-row explainer">
+  <meta name="twitter:description" content="One row fanning out to many, and the NULL that never matches — the two things a Venn diagram cannot show. See joins pair up row by row.">
+  <meta name="twitter:image" content="https://sreenivas-sadhu-prabhakara.github.io/joincraft-explained/og-image.png">
+  <meta name="twitter:image:alt" content="A crossed-out Venn diagram beside a one-to-three chartreuse join-ribbon fan">
+
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- Structured data (data block; not affected by script-src) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Why a Venn diagram lies about SQL joins",
+    "description": "An animated, offline explainer of how SQL joins actually pair rows — including the duplicate-key blowup and the NULL that never matches, the two things a Venn diagram cannot draw — linking to a real row-by-row join visualizer.",
+    "url": "https://sreenivas-sadhu-prabhakara.github.io/joincraft-explained/",
+    "applicationCategory": "EducationalApplication",
+    "operatingSystem": "Any (modern web browser)",
+    "browserRequirements": "Requires a modern web browser with JavaScript enabled.",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "license": "https://opensource.org/licenses/MIT",
+    "author": { "@type": "Person", "name": "Sreenivas Sadhu Prabhakara" },
+    "softwareVersion": "0.1.0",
+    "featureList": [
+      "Animated explanation of why a Venn diagram misleads about joins",
+      "The duplicate-key blowup: one row fanning out to many, drawn as a ribbon fan",
+      "The NULL that never matches, and how three-valued logic decides it",
+      "How GROUP BY groups the same NULLs a join could not match",
+      "The enforced-privacy guarantee: connect-src 'none' blocks all network requests",
+      "Links to a live, offline SQL-join visualizer"
+    ]
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Why is a Venn diagram wrong for explaining SQL joins?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "A Venn diagram models set membership: a row is either in the intersection or not. But a join is a pairing, not a membership test. When a key is duplicated, one row fans out to many and the result can have more rows than either table — a case no Venn diagram can draw. It also says nothing about NULL, the single biggest source of join surprises."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why can a SQL join return more rows than either table?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "When a join key is duplicated, rows multiply. If key 'A' has 2 rows on the left and 3 on the right, an INNER join emits 2 x 3 = 6 rows for that key alone, so the output can exceed both inputs. This duplicate-key blowup is the fan a Venn diagram cannot draw."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why do NULL join keys never match, even NULL = NULL?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "In SQL, NULL = NULL evaluates to UNKNOWN, not TRUE, so an ON clause never pairs two NULL keys. A NULL-key row is dropped by INNER, but survives LEFT, RIGHT and FULL with the other side padded to NULL. Confusingly, GROUP BY does the opposite: it collapses all NULLs into one bucket."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does this page send my data anywhere or run online?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. This explainer is a single static page with a Content-Security-Policy that sets connect-src 'none', so the browser itself blocks every network request. There are no external fonts, scripts, images, analytics, or trackers. It works fully offline once loaded, and so does the visualizer it links to."
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to the explainer</a>
+
+  <!-- progress rail (decorative, driven by app.js; degrades to nothing) -->
+  <div class="scrollrail" aria-hidden="true"><span class="scrollrail__fill" id="scrollFill"></span></div>
+
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="hero__inner">
+      <p class="eyebrow">An animated explainer &middot; runs fully offline &middot; no tracking</p>
+      <h1 class="hero__title">SQL joins explained: why the <span class="hero__strike">Venn diagram</span> lies &mdash; and what really <span class="hero__accent">happens to your rows</span></h1>
+      <p class="hero__lede">
+        Every &ldquo;SQL joins explained&rdquo; article reaches for two overlapping circles. But a Venn diagram is a picture about
+        <em>sets</em>, and a join is a <strong>pairing</strong>. It cannot draw the moment one row fans out to many, and it says
+        nothing about the <span class="tok tok--null">NULL</span> that never matches. Scroll to watch what a join actually does.
+      </p>
+
+      <!-- Hero motif: Venn (crossed) morphing into the ribbon fan -->
+      <div class="hero__stage" aria-hidden="true">
+        <svg viewBox="0 0 480 220" class="herofig" role="presentation">
+          <!-- the discredited Venn -->
+          <g class="herofig__venn">
+            <circle cx="150" cy="110" r="66"/>
+            <circle cx="210" cy="110" r="66"/>
+            <line class="herofig__cross" x1="96" y1="52" x2="264" y2="168"/>
+          </g>
+          <!-- the honest ribbon fan: 1 left row -> 3 right rows -->
+          <g class="herofig__fan">
+            <rect class="hf-row" x="300" y="100" width="52" height="20" rx="4"/>
+            <rect class="hf-row" x="420" y="58"  width="52" height="20" rx="4"/>
+            <rect class="hf-row" x="420" y="100" width="52" height="20" rx="4"/>
+            <rect class="hf-row" x="420" y="142" width="52" height="20" rx="4"/>
+            <path class="hf-rib" style="--i:0" d="M352 110 C 388 110, 388 68,  420 68"/>
+            <path class="hf-rib" style="--i:1" d="M352 110 C 388 110, 388 110, 420 110"/>
+            <path class="hf-rib" style="--i:2" d="M352 110 C 388 110, 388 152, 420 152"/>
+          </g>
+        </svg>
+      </div>
+
+      <div class="hero__cta">
+        <a class="btn btn--primary btn--lg" href="https://sreenivas-sadhu-prabhakara.github.io/joincraft/" rel="noopener">
+          Try the live join visualizer &rarr;
+        </a>
+        <a class="btn btn--ghost btn--lg" href="#blowup">See the blowup first</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ============ 1. THE REAL PROBLEM ============ -->
+    <section class="reveal band" id="problem" aria-labelledby="problemH">
+      <div class="band__inner">
+        <p class="kicker">The real problem</p>
+        <h2 id="problemH" class="band__title">You already know what a join <em>should</em> do. It&rsquo;s the exceptions that bite.</h2>
+        <p class="band__body">
+          Nobody is surprised by a clean one-to-one join. People get burned by the cases the diagram hides:
+          a key that repeats and quietly multiplies your row count; a row that should have appeared and vanished; a
+          <span class="tok tok--null">NULL</span> that grouped with other NULLs in one breath and refused to match them in the next.
+          These are exactly the questions asked in interviews and exactly the bugs that inflate a nightly total.
+        </p>
+        <ul class="painlist">
+          <li><span class="painlist__q">&ldquo;Why did my report suddenly show more rows than the table has?&rdquo;</span></li>
+          <li><span class="painlist__q">&ldquo;Why is this customer missing after the join?&rdquo;</span></li>
+          <li><span class="painlist__q">&ldquo;Why did <code>SUM(amount)</code> get bigger than it should be?&rdquo;</span></li>
+          <li><span class="painlist__q">&ldquo;Why does <code>NULL = NULL</code> not match, but <code>GROUP BY</code> puts them together?&rdquo;</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 2. THE BLOWUP (core motif animated) ============ -->
+    <section class="reveal band band--feature" id="blowup" aria-labelledby="blowupH">
+      <div class="band__inner">
+        <p class="kicker">What a Venn diagram cannot draw</p>
+        <h2 id="blowupH" class="band__title">One key on the left. Three on the right. <span class="hero__accent">Six output rows.</span></h2>
+        <p class="band__body">
+          A join is not a membership test &mdash; it is a <strong>pairing</strong>. When the join key is duplicated, every left row
+          pairs with <em>every</em> matching right row. Two &ldquo;A&rdquo;s on the left and three on the right make 2&nbsp;&times;&nbsp;3&nbsp;=&nbsp;6 rows
+          for that key alone. The result now has more rows than either input &mdash; the shape two circles can never represent.
+        </p>
+
+        <div class="demo" aria-hidden="true">
+          <div class="demo__stage">
+            <svg viewBox="0 0 640 300" class="joinfig" preserveAspectRatio="xMidYMid meet" role="presentation">
+              <!-- left stack: A, A, B -->
+              <g class="stack stack--left">
+                <text class="stack__cap" x="70" y="30">left</text>
+                <g class="jrow" style="--i:0"><rect x="20" y="52"  width="110" height="34" rx="6"/><text class="jrow__k" x="40" y="74">A</text><text class="jrow__v" x="66" y="74">·red</text></g>
+                <g class="jrow" style="--i:1"><rect x="20" y="98"  width="110" height="34" rx="6"/><text class="jrow__k" x="40" y="120">A</text><text class="jrow__v" x="66" y="120">·blue</text></g>
+                <g class="jrow" style="--i:2"><rect x="20" y="144" width="110" height="34" rx="6"/><text class="jrow__k" x="40" y="166">B</text><text class="jrow__v" x="66" y="166">·grey</text></g>
+              </g>
+              <!-- right stack: A, A, A, C -->
+              <g class="stack stack--right">
+                <text class="stack__cap" x="570" y="30">right</text>
+                <g class="jrow" style="--i:3"><rect x="510" y="40"  width="110" height="34" rx="6"/><text class="jrow__k" x="530" y="62">A</text><text class="jrow__v" x="556" y="62">·1</text></g>
+                <g class="jrow" style="--i:4"><rect x="510" y="86"  width="110" height="34" rx="6"/><text class="jrow__k" x="530" y="108">A</text><text class="jrow__v" x="556" y="108">·2</text></g>
+                <g class="jrow" style="--i:5"><rect x="510" y="132" width="110" height="34" rx="6"/><text class="jrow__k" x="530" y="154">A</text><text class="jrow__v" x="556" y="154">·3</text></g>
+                <g class="jrow" style="--i:6"><rect x="510" y="178" width="110" height="34" rx="6"/><text class="jrow__k" x="530" y="200">C</text><text class="jrow__v" x="556" y="200">·9</text></g>
+              </g>
+              <!-- the six ribbons: each of 2 left A's -> each of 3 right A's -->
+              <g class="ribbons">
+                <path class="jrib" style="--i:0" d="M130 69  C 320 69,  320 57,  510 57"/>
+                <path class="jrib" style="--i:1" d="M130 69  C 320 69,  320 103, 510 103"/>
+                <path class="jrib" style="--i:2" d="M130 69  C 320 69,  320 149, 510 149"/>
+                <path class="jrib" style="--i:3" d="M130 115 C 320 115, 320 57,  510 57"/>
+                <path class="jrib" style="--i:4" d="M130 115 C 320 115, 320 103, 510 103"/>
+                <path class="jrib" style="--i:5" d="M130 115 C 320 115, 320 149, 510 149"/>
+              </g>
+            </svg>
+          </div>
+          <div class="demo__count">
+            <div class="counter"><span class="counter__val" data-count="2">2</span><span class="counter__label">left &ldquo;A&rdquo; rows</span></div>
+            <span class="demo__op">&times;</span>
+            <div class="counter"><span class="counter__val" data-count="3">3</span><span class="counter__label">right &ldquo;A&rdquo; rows</span></div>
+            <span class="demo__op">=</span>
+            <div class="counter counter--out"><span class="counter__val" data-count="6">6</span><span class="counter__label">output rows</span></div>
+          </div>
+        </div>
+        <p class="blowup" role="note">
+          <span class="blowup__badge">! blowup</span>
+          Six rows out of a five-row input. Two overlapping circles have no way to show a result <em>larger</em> than both sets.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 3. THE NULL THAT NEVER MATCHES ============ -->
+    <section class="reveal band" id="null" aria-labelledby="nullH">
+      <div class="band__inner">
+        <p class="kicker">The other thing it hides</p>
+        <h2 id="nullH" class="band__title">A <span class="tok tok--null">NULL</span> key never matches &mdash; not even another <span class="tok tok--null">NULL</span>.</h2>
+        <p class="band__body">
+          Every SQL condition returns one of <strong>three</strong> answers, not two: <strong>TRUE</strong>, <strong>FALSE</strong>, or
+          <strong class="v-unknown">UNKNOWN</strong>. Because <code>NULL</code> means &ldquo;unknown value,&rdquo; comparing it to anything &mdash; even to another
+          <code>NULL</code> &mdash; yields <strong class="v-unknown">UNKNOWN</strong>, and an <code>ON</code> clause only pairs rows when the answer is TRUE.
+          So a NULL-key row is <em>dropped</em> by INNER, but <em>survives</em> LEFT / RIGHT / FULL with the other side padded to NULL.
+        </p>
+
+        <div class="nullfig" aria-hidden="true">
+          <div class="nullfig__eq">
+            <span class="nf-cell">NULL</span>
+            <span class="nf-op">=</span>
+            <span class="nf-cell">NULL</span>
+            <span class="nf-arrow">&rarr;</span>
+            <span class="nf-result v-unknown">UNKNOWN</span>
+          </div>
+          <table class="tt">
+            <caption class="tt__cap">Three-valued <code>=</code> against a NULL operand</caption>
+            <thead><tr><th scope="col">left</th><th scope="col"><code>=</code></th><th scope="col">right</th><th scope="col">result</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>=</td><td>1</td><td class="v-true">TRUE</td></tr>
+              <tr><td>1</td><td>=</td><td>2</td><td class="v-false">FALSE</td></tr>
+              <tr><td>1</td><td>=</td><td class="null">NULL</td><td class="v-unknown">~ UNKNOWN</td></tr>
+              <tr><td class="null">NULL</td><td>=</td><td class="null">NULL</td><td class="v-unknown">~ UNKNOWN</td></tr>
+            </tbody>
+          </table>
+          <p class="nullfig__note">Only a TRUE pairs rows in an <code>ON</code> clause. UNKNOWN is not TRUE &mdash; so the NULL row is never matched.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. GROUP BY does the opposite ============ -->
+    <section class="reveal band" id="groupby" aria-labelledby="groupbyH">
+      <div class="band__inner">
+        <p class="kicker">The twist that catches everyone</p>
+        <h2 id="groupbyH" class="band__title"><code>GROUP BY</code> pulls those same NULLs <span class="hero__accent">together</span>.</h2>
+        <p class="band__body">
+          Here is the contradiction people trip over: an <code>ON</code> clause treats two NULLs as <em>not equal</em>, but
+          <code>GROUP BY</code> treats them as <em>the same group</em>. The same NULLs that refused to match a moment ago now fall into one bucket.
+          And the aggregates disagree too &mdash; <code>COUNT(*)</code> counts every row while <code>COUNT(col)</code>, <code>SUM</code> and <code>AVG</code> quietly skip NULLs.
+        </p>
+
+        <div class="binfig" aria-hidden="true">
+          <div class="binfig__loose">
+            <span class="chip">NULL</span><span class="chip">NULL</span><span class="chip chip--k">east</span><span class="chip chip--k">east</span><span class="chip">NULL</span>
+          </div>
+          <div class="binfig__arrow">&darr; GROUP BY region</div>
+          <div class="binfig__bins">
+            <div class="bin bin--null"><span class="bin__label">NULL bucket</span><span class="bin__n">3 rows</span></div>
+            <div class="bin"><span class="bin__label">east</span><span class="bin__n">2 rows</span></div>
+          </div>
+          <p class="binfig__note">All three NULLs land in one bucket &mdash; the exact opposite of what <code>ON</code> did.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 5. THE PRIVACY GUARANTEE ============ -->
+    <section class="reveal band band--privacy" id="privacy" aria-labelledby="privacyH">
+      <div class="band__inner">
+        <p class="kicker">Enforced, not promised</p>
+        <h2 id="privacyH" class="band__title">Your tables never leave your browser &mdash; the page <span class="hero__accent">cannot</span> send them.</h2>
+        <p class="band__body">
+          This explainer and the visualizer it links to both ship one line that makes the privacy guarantee real rather than a policy:
+          a Content-Security-Policy with <code>connect-src&nbsp;'none'</code>. The browser itself refuses every outbound request &mdash; no fetch,
+          no XHR, no WebSocket, no analytics, no fonts from a CDN. There is nothing to trust and nothing to opt out of.
+        </p>
+        <div class="csp" aria-hidden="true">
+          <code class="csp__code">connect-src&nbsp;<span class="csp__none">'none'</span>;</code>
+          <div class="csp__packets">
+            <span class="pkt" style="--i:0"></span><span class="pkt" style="--i:1"></span><span class="pkt" style="--i:2"></span>
+            <span class="csp__wall" aria-hidden="true"></span>
+          </div>
+          <span class="csp__verdict">every request blocked at the door</span>
+        </div>
+        <p class="band__body band__body--sm">
+          Because there are no network dependencies, both pages keep working with <strong>no signal at all</strong> &mdash; load once, use offline.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ 6. FEATURE TOUR ============ -->
+    <section class="reveal band" id="tour" aria-labelledby="tourH">
+      <div class="band__inner">
+        <p class="kicker">What the visualizer lets you do</p>
+        <h2 id="tourH" class="band__title">A real evaluator, not a picture.</h2>
+        <div class="tour">
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><rect class="tm-row" x="4" y="16" width="12" height="7" rx="2"/><rect class="tm-row" x="24" y="7" width="12" height="7" rx="2"/><rect class="tm-row" x="24" y="16" width="12" height="7" rx="2"/><rect class="tm-row" x="24" y="25" width="12" height="7" rx="2"/><path class="tm-rib" d="M16 19 C 22 19, 22 10, 24 10"/><path class="tm-rib" d="M16 19 C 22 19, 22 19, 24 19"/><path class="tm-rib" d="M16 19 C 22 19, 22 28, 24 28"/></svg>
+            </span>
+            <h3 class="tour__h">Five joins, ribbon by ribbon</h3>
+            <p class="tour__p">INNER, LEFT, RIGHT, FULL and CROSS on two editable tables. Every output row draws a ribbon back to the source rows it came from &mdash; solid for a matched pair, dashed into a NULL pad for an orphan.</p>
+          </article>
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><text x="6" y="26" class="tm-txt">2&times;3</text><text x="27" y="26" class="tm-txt tm-txt--out">=6</text></svg>
+            </span>
+            <h3 class="tour__h">The row-math strip</h3>
+            <p class="tour__p">Live counts of matched pairs, left and right orphans, and output rows &mdash; with the &ldquo;a Venn diagram cannot draw this&rdquo; callout that fires the instant duplicate keys make the output larger than either input.</p>
+          </article>
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><text x="6" y="17" class="tm-txt tm-txt--sm">=</text><text x="20" y="17" class="tm-txt tm-txt--u">~U</text><text x="6" y="33" class="tm-txt tm-txt--sm">AND</text><text x="24" y="33" class="tm-txt tm-txt--u">~U</text></svg>
+            </span>
+            <h3 class="tour__h">The NULL corner</h3>
+            <p class="tour__p">Interactive three-valued-logic tables for <code>=</code>, <code>&lt;&gt;</code>, <code>AND</code>, <code>OR</code>, <code>NOT</code> and <code>IS NULL</code>, returning TRUE / FALSE / UNKNOWN &mdash; so you can see exactly why the NULL key never matched.</p>
+          </article>
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><rect class="tm-bin" x="5" y="20" width="12" height="15" rx="2"/><rect class="tm-bin" x="23" y="12" width="12" height="23" rx="2"/></svg>
+            </span>
+            <h3 class="tour__h">A GROUP BY stage</h3>
+            <p class="tour__p">Pick a group column and an aggregate &mdash; COUNT(*), COUNT(col), SUM, AVG, MIN, MAX &mdash; and watch rows fall into bins, surfacing how NULLs group together yet skip the aggregates that ignore them.</p>
+          </article>
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><rect class="tm-card" x="7" y="6" width="26" height="28" rx="3"/><path class="tm-tick" d="M13 20 l4 4 l9 -10"/></svg>
+            </span>
+            <h3 class="tour__h">12 gotcha scenarios</h3>
+            <p class="tour__p">One click loads a table pair, an operation and a hand-verified result &mdash; the blowup, the orphan, the inflated <code>SUM</code> after a one-to-many join &mdash; with an &ldquo;understood&rdquo; checklist for interview-prep across multiple visits.</p>
+          </article>
+          <article class="tour__card">
+            <span class="tour__mark" aria-hidden="true">
+              <svg viewBox="0 0 40 40"><path class="tm-dl" d="M20 6 v16 M13 17 l7 7 l7 -7" /><path class="tm-tray" d="M9 30 h22" /></svg>
+            </span>
+            <h3 class="tour__h">Export is the handoff</h3>
+            <p class="tour__p">RFC-4180 CSV of the current result set and a printable cheat-sheet &mdash; because there is no cloud sync or sharing by design. What you make stays on your device.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CTA ============ -->
+    <section class="reveal cta" id="cta" aria-labelledby="ctaH">
+      <div class="cta__inner">
+        <svg viewBox="0 0 220 120" class="cta__fan" aria-hidden="true">
+          <rect class="hf-row" x="6" y="50" width="54" height="20" rx="4"/>
+          <rect class="hf-row" x="160" y="14" width="54" height="20" rx="4"/>
+          <rect class="hf-row" x="160" y="50" width="54" height="20" rx="4"/>
+          <rect class="hf-row" x="160" y="86" width="54" height="20" rx="4"/>
+          <path class="hf-rib" style="--i:0" d="M60 60 C 110 60, 110 24, 160 24"/>
+          <path class="hf-rib" style="--i:1" d="M60 60 C 110 60, 110 60, 160 60"/>
+          <path class="hf-rib" style="--i:2" d="M60 60 C 110 60, 110 96, 160 96"/>
+        </svg>
+        <h2 id="ctaH" class="cta__title">Stop reading about joins. <span class="hero__accent">Watch them.</span></h2>
+        <p class="cta__lede">
+          Open the visualizer, pick a join, edit two small tables, and draw the pairing yourself &mdash;
+          duplicate-key blowup, NULL orphan, GROUP BY and all. It runs entirely in your browser, offline.
+        </p>
+        <a class="btn btn--primary btn--lg" href="https://sreenivas-sadhu-prabhakara.github.io/joincraft/" rel="noopener">
+          Open the live join visualizer &rarr;
+        </a>
+        <p class="cta__sub">Free, open-source, no account, no tracking &middot; verified against SQLite</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="foot">
+    <div class="foot__inner">
+      <p class="foot__disclaimer">
+        <strong>Educational explainer.</strong> This page illustrates SQL join and NULL semantics for learning; the linked
+        visualizer is a teaching model, not a database engine, and its output is not a substitute for testing against your real
+        database. ANSI three-valued-logic behaviour was cross-checked against SQLite, but real databases can differ in collation,
+        type coercion, and dialect extensions &mdash; verify anything important on your actual database. Provided under the MIT
+        License, &ldquo;as is&rdquo;, without warranty of any kind; the author accepts no liability for any loss or damage arising from its use.
+      </p>
+      <p class="foot__meta">
+        <span>Runs 100% offline</span><span class="foot__dot">&middot;</span>
+        <span>No network, no accounts</span><span class="foot__dot">&middot;</span>
+        <span><a class="foot__link" href="https://sreenivas-sadhu-prabhakara.github.io/joincraft/" rel="noopener">The visualizer</a></span><span class="foot__dot">&middot;</span>
+        <span>MIT&nbsp;License</span><span class="foot__dot">&middot;</span>
+        <span>&copy; 2026 Sreenivas&nbsp;Sadhu&nbsp;Prabhakara</span>
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

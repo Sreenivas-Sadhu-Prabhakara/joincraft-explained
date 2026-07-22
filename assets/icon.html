@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1D2126; }
+  body { display: grid; place-items: center; }
+  /* 12% safe padding on each side -> mark fills the middle 76vmin */
+  .mark { width: 76vmin; height: 76vmin; display: block; }
+</style>
+</head>
+<body>
+  <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+    <!-- left source row -->
+    <rect x="3" y="14" width="9" height="4.4" rx="1.5" fill="#2E353D" stroke="#3A424B" stroke-width="0.7"/>
+    <!-- three right rows -->
+    <rect x="21" y="5.5"  width="8" height="4.4" rx="1.5" fill="#2E353D" stroke="#3A424B" stroke-width="0.7"/>
+    <rect x="21" y="13.8" width="8" height="4.4" rx="1.5" fill="#2E353D" stroke="#3A424B" stroke-width="0.7"/>
+    <rect x="21" y="22.1" width="8" height="4.4" rx="1.5" fill="#2E353D" stroke="#3A424B" stroke-width="0.7"/>
+    <!-- the 1-to-3 chartreuse ribbon fan (the signature mark) -->
+    <path d="M12 16.2 C 17 16.2, 17 7.7,  21 7.7"  fill="none" stroke="#D7F84B" stroke-width="2.3" stroke-linecap="round"/>
+    <path d="M12 16.2 C 17 16.2, 17 16,   21 16"   fill="none" stroke="#D7F84B" stroke-width="2.3" stroke-linecap="round"/>
+    <path d="M12 16.2 C 17 16.2, 17 24.3, 21 24.3" fill="none" stroke="#D7F84B" stroke-width="2.3" stroke-linecap="round"/>
+  </svg>
+</body>
+</html>

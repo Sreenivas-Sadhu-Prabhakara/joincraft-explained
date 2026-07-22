@@ -1,0 +1,24 @@
+{
+  "name": "Why a Venn diagram lies about SQL joins",
+  "short_name": "joins explained",
+  "description": "An animated, offline explainer of how SQL joins really pair rows — the duplicate-key blowup and the NULL that never matches, the two things a Venn diagram cannot draw.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#1D2126",
+  "theme_color": "#1D2126",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
